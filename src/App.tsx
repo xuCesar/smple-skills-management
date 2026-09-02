@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { createConfigStore, type ManagedConfig } from './domain/config'
 import { scanSkillDirectories, type DiscoverySnapshot } from './domain/discovery'
+import { createPreviewReview, parsePublicRepository, type SkillReview } from './domain/github'
 
 type Skill = {
   id: string
@@ -133,5 +134,9 @@ function SkillCard({ skill, selected, onSelect, onToggle }: { skill: Skill; sele
 }
 
 function InstallModal({ onClose, onInstall }: { onClose: () => void; onInstall: () => void }) {
-  return <div className="modal-backdrop" onClick={onClose}><div className="modal" onClick={(event) => event.stopPropagation()}><div className="modal-header"><div><h2>安装新技能</h2><p>从技能目录添加到你的工作区</p></div><button className="icon-button subtle" onClick={onClose}>×</button></div><div className="dropzone"><div className="upload-icon">↑</div><strong>拖拽技能文件到这里</strong><span>支持 .skill、.zip 格式</span><button>选择文件</button></div><div className="modal-divider"><span>或</span></div><div className="url-input"><Icon size={15}>⌁</Icon><input placeholder="粘贴技能仓库地址" /></div><div className="modal-footer"><button className="secondary-button" onClick={onClose}>取消</button><button className="primary-button" onClick={onInstall}><Icon size={15}>＋</Icon> 开始安装</button></div></div></div>
+  const [locator, setLocator] = useState('')
+  const [review, setReview] = useState<SkillReview | null>(null)
+  const [error, setError] = useState('')
+  const inspect = () => { try { setReview(createPreviewReview(parsePublicRepository(locator))); setError('') } catch (cause) { setError(cause instanceof Error ? cause.message : '来源格式不正确') } }
+  return <div className="modal-backdrop" onClick={onClose}><div className="modal" onClick={(event) => event.stopPropagation()}><div className="modal-header"><div><h2>{review ? '审查技能来源' : '安装新技能'}</h2><p>{review ? '确认来源和文件后再选择安装位置' : '从公开 GitHub 仓库添加到 Skill library'}</p></div><button className="icon-button subtle" onClick={onClose}>×</button></div>{review ? <><div className="review-source"><span className="skill-icon-large">⌘</span><div><strong>{review.source.owner}/{review.source.repo}</strong><span>{review.source.canonical}</span></div></div><div className="review-box"><div className="review-title">文件清单 · {review.revision}</div>{review.files.map((file) => <div className="review-file" key={file.path}><Icon size={13}>{file.kind === 'skill' ? '▤' : '□'}</Icon><span>{file.path}</span><small>{file.kind === 'skill' ? '入口文件' : '普通文件'}</small></div>)}</div><div className="target-row"><span>安装到</span><select defaultValue="~/.agents/skills"><option>~/.agents/skills</option><option>~/.codex/skills</option><option>~/.claude/skills</option></select></div><div className="modal-footer"><button className="secondary-button" onClick={() => setReview(null)}>返回</button><button className="primary-button" onClick={onInstall}><Icon size={15}>✓</Icon> 确认并安装</button></div></> : <><div className="dropzone"><div className="upload-icon">↑</div><strong>拖拽技能文件到这里</strong><span>支持 .skill、.zip 格式</span><button>选择文件</button></div><div className="modal-divider"><span>或</span></div><div className="url-input"><Icon size={15}>⌁</Icon><input value={locator} onChange={(event) => setLocator(event.target.value)} placeholder="粘贴 GitHub 仓库地址或 owner/repo" /></div>{error && <div className="form-error">{error}</div>}<div className="modal-footer"><button className="secondary-button" onClick={onClose}>取消</button><button className="primary-button" onClick={inspect}><Icon size={15}>⌕</Icon> 审查来源</button></div></>}</div></div>
 }
