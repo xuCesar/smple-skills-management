@@ -1,0 +1,8 @@
+# Local build and tool outputs
+dist/assets/
+node_modules/.tmp/
+src-tauri/target/
+src-tauri/gen/
+
+# macOS metadata
+.DS_Store
