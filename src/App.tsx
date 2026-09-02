@@ -1,4 +1,6 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { createConfigStore, type ManagedConfig } from './domain/config'
+import { scanSkillDirectories, type DiscoverySnapshot } from './domain/discovery'
 
 type Skill = {
   id: string
@@ -37,11 +39,30 @@ function Icon({ children, size = 18 }: { children: string; size?: number }) {
 
 export function App() {
   const [skills, setSkills] = useState(initialSkills)
+  const [config, setConfig] = useState<ManagedConfig | null>(null)
+  const [snapshot, setSnapshot] = useState<DiscoverySnapshot | null>(null)
+  const [scanning, setScanning] = useState(false)
   const [selectedId, setSelectedId] = useState(initialSkills[0].id)
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState('全部')
   const [showModal, setShowModal] = useState(false)
   const [toast, setToast] = useState('')
+
+  useEffect(() => { createConfigStore().load().then(setConfig).catch(() => setToast('配置读取失败，已使用默认设置')) }, [])
+
+  const scan = async () => {
+    if (!config) return
+    setScanning(true)
+    try {
+      const next = await scanSkillDirectories(config.directories, config.installations)
+      setSnapshot(next)
+      if (next.skills.length > 0) {
+        setSkills(next.skills.map((skill, index) => ({ id: skill.id, name: skill.name, description: skill.description || '暂无描述', category: '开发', version: '—', updated: '刚刚扫描', uses: '—', color: ['#f29d74', '#7aa2f7', '#a98cf4', '#6dc9b3'][index % 4], icon: '✦', enabled: true, tags: ['本地', skill.source === 'default' ? '默认目录' : '自定义目录'] })))
+        setSelectedId(next.skills[0].id)
+      }
+      setToast(`扫描完成：发现 ${next.skills.length} 个技能`)
+    } catch { setToast('扫描失败，请检查目录权限') } finally { setScanning(false); window.setTimeout(() => setToast(''), 2200) }
+  }
 
   const selected = skills.find((skill) => skill.id === selectedId) ?? skills[0]
   const filteredSkills = useMemo(() => skills.filter((skill) => {
@@ -81,7 +102,7 @@ export function App() {
           <section className="skills-column">
             <div className="page-heading"><div><h1>全部技能</h1><p>管理已安装的技能，按需启用你的工作流。</p></div><button className="primary-button" onClick={() => setShowModal(true)}><Icon size={16}>＋</Icon> 安装技能</button></div>
             <div className="summary-row"><div className="summary-item"><span className="summary-number">{skills.length + 18}</span><span>个技能</span></div><div className="summary-divider" /><div className="summary-item"><span className="summary-number accent">{enabledCount}</span><span>已启用</span></div><div className="summary-divider" /><div className="summary-item"><span className="summary-number warm">3</span><span>可更新</span></div></div>
-            <div className="toolbar"><div className="search-box"><Icon size={16}>⌕</Icon><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索技能名称或描述" /><kbd>⌘ K</kbd></div><div className="filter-tabs">{categoryFilters.map((item) => <button key={item} className={filter === item ? 'selected' : ''} onClick={() => setFilter(item)}>{item}</button>)}</div><button className="sort-button"><Icon size={14}>↕</Icon> 最近更新</button></div>
+            <div className="toolbar"><div className="search-box"><Icon size={16}>⌕</Icon><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索技能名称或描述" /><kbd>⌘ K</kbd></div><div className="filter-tabs">{categoryFilters.map((item) => <button key={item} className={filter === item ? 'selected' : ''} onClick={() => setFilter(item)}>{item}</button>)}</div><button className="sort-button" onClick={scan} disabled={scanning}><Icon size={14}>↻</Icon> {scanning ? '扫描中…' : snapshot ? '重新扫描' : '扫描目录'}</button></div>
             <div className="skills-list">
               {filteredSkills.map((skill) => <SkillCard key={skill.id} skill={skill} selected={skill.id === selectedId} onSelect={() => setSelectedId(skill.id)} onToggle={() => toggleSkill(skill.id)} />)}
               {filteredSkills.length === 0 && <div className="empty-state"><div className="empty-icon">⌕</div><h3>没有找到匹配的技能</h3><p>试试搜索其他关键词或切换分类。</p></div>}
