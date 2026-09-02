@@ -56,10 +56,9 @@ export function App() {
     try {
       const next = await scanSkillDirectories(config.directories, config.installations)
       setSnapshot(next)
-      if (next.skills.length > 0) {
-        setSkills(next.skills.map((skill, index) => ({ id: skill.id, name: skill.name, description: skill.description || '暂无描述', category: '开发', version: '—', updated: '刚刚扫描', uses: '—', color: ['#f29d74', '#7aa2f7', '#a98cf4', '#6dc9b3'][index % 4], icon: '✦', tags: ['本地', skill.source === 'default' ? '默认目录' : '自定义目录'] })))
-        setSelectedId(next.skills[0].id)
-      }
+      const discovered = next.skills.map((skill, index) => ({ id: skill.id, name: skill.name, description: skill.description || '暂无描述', category: '开发', version: '—', updated: '刚刚扫描', uses: '—', color: ['#f29d74', '#7aa2f7', '#a98cf4', '#6dc9b3'][index % 4], icon: '✦', tags: ['本地', skill.source === 'default' ? '默认目录' : '自定义目录'] }))
+      setSkills(discovered)
+      setSelectedId(discovered[0]?.id ?? '')
       setToast(`扫描完成：发现 ${next.skills.length} 个技能`)
     } catch { setToast('扫描失败，请检查目录权限') } finally { setScanning(false); window.setTimeout(() => setToast(''), 2200) }
   }

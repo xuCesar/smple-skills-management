@@ -24,7 +24,12 @@ function tauriInvoke(): Invoke | undefined {
   return (globalThis as { __TAURI__?: { core?: { invoke: Invoke } } }).__TAURI__?.core?.invoke
 }
 
-/** Executes a user-requested scan. In browser preview this returns an empty snapshot. */
+/** 执行用户主动发起的扫描；浏览器预览环境返回空快照。 */
+function isDiscoverySnapshot(value: unknown): value is DiscoverySnapshot {
+  if (!value || typeof value !== 'object') return false
+  const snapshot = value as Record<string, unknown>
+  return Array.isArray(snapshot.skills) && Array.isArray(snapshot.invalidDirectories) && Array.isArray(snapshot.conflicts) && Array.isArray(snapshot.warnings) && Array.isArray(snapshot.staleInstallations) && typeof snapshot.scannedAt === 'string'
+}
 export async function scanSkillDirectories(
   directories: SkillDirectory[],
   installations: ManagedInstallation[] = [],
@@ -35,5 +40,6 @@ export async function scanSkillDirectories(
     directories: directories.map((directory) => directory.path),
     installations,
   })
-  return result as DiscoverySnapshot
+  if (!isDiscoverySnapshot(result)) throw new Error('扫描返回的数据格式无效')
+  return result
 }
