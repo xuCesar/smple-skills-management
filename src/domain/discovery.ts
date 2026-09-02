@@ -12,6 +12,7 @@ export type DiscoveredSkill = {
 export type DiscoverySnapshot = {
   skills: DiscoveredSkill[]
   invalidDirectories: string[]
+  conflicts: Array<{ path: string; directoryName: string; declaredName: string | null }>
   warnings: Array<{ path: string; message: string }>
   staleInstallations: ManagedInstallation[]
   scannedAt: string
@@ -29,11 +30,10 @@ export async function scanSkillDirectories(
   installations: ManagedInstallation[] = [],
 ): Promise<DiscoverySnapshot> {
   const invoke = tauriInvoke()
-  if (!invoke) return { skills: [], invalidDirectories: [], warnings: [], staleInstallations: [], scannedAt: new Date().toISOString() }
+  if (!invoke) return { skills: [], invalidDirectories: [], conflicts: [], warnings: [], staleInstallations: [], scannedAt: new Date().toISOString() }
   const result = await invoke('scan_directories', {
     directories: directories.map((directory) => directory.path),
     installations,
   })
   return result as DiscoverySnapshot
 }
-

@@ -26,7 +26,7 @@ fn expand_path(path: &str) -> PathBuf {
 
 #[tauri::command]
 fn scan_directories(directories: Vec<String>, installations: Vec<serde_json::Value>) -> Result<serde_json::Value, String> {
-  let mut skills = Vec::new(); let mut invalid = Vec::new(); let mut warnings = Vec::new();
+  let mut skills = Vec::new(); let mut invalid = Vec::new(); let mut warnings = Vec::new(); let mut conflicts = Vec::new();
   for raw in directories {
     let root = expand_path(&raw);
     let entries = match fs::read_dir(&root) { Ok(entries) => entries, Err(error) => { if error.kind() == std::io::ErrorKind::PermissionDenied { warnings.push(serde_json::json!({"path": raw, "message": "目录无读取权限"})); } else { invalid.push(raw); } continue; } };
@@ -38,13 +38,19 @@ fn scan_directories(directories: Vec<String>, installations: Vec<serde_json::Val
       let content = match fs::read_to_string(&skill_file) { Ok(value) => value, Err(error) => { warnings.push(serde_json::json!({"path": path, "message": error.to_string()})); continue; } };
       let frontmatter = content.strip_prefix("---").and_then(|v| v.split_once("---")).map(|(_, body)| body).unwrap_or("");
       let field = |name: &str| frontmatter.lines().find_map(|line| line.strip_prefix(name).and_then(|v| v.strip_prefix(':')).map(|v| v.trim().trim_matches('"').to_string()));
-      let id = field("name").unwrap_or_else(|| entry.file_name().to_string_lossy().to_string());
+      let directory_name = entry.file_name().to_string_lossy().to_string();
+      let declared_name = field("name");
+      if declared_name.as_deref().map(|name| name != directory_name).unwrap_or(true) {
+        conflicts.push(serde_json::json!({"path": path, "directoryName": directory_name, "declaredName": declared_name}));
+        continue;
+      }
+      let id = declared_name.unwrap_or(directory_name);
       let description = field("description").unwrap_or_default();
       skills.push(serde_json::json!({"id": id, "name": id, "description": description, "path": path, "directory": root, "source": "user"}));
     }
   }
   let stale: Vec<_> = installations.into_iter().filter(|item| item.get("path").and_then(|v| v.as_str()).map(|p| !expand_path(p).exists()).unwrap_or(false)).collect();
-  Ok(serde_json::json!({"skills": skills, "invalidDirectories": invalid, "warnings": warnings, "staleInstallations": stale, "scannedAt": chrono_now()}))
+  Ok(serde_json::json!({"skills": skills, "invalidDirectories": invalid, "conflicts": conflicts, "warnings": warnings, "staleInstallations": stale, "scannedAt": chrono_now()}))
 }
 fn chrono_now() -> String { format!("{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs()) }
 
