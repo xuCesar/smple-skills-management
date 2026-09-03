@@ -209,6 +209,12 @@ export function createSkillLifecycleService(ports: LifecyclePorts, handlers: Lif
       if (!tree.files.length || !tree.files.some((file) => file.path === tree.skillPath)) {
         throw createLifecycleError('skill-not-found', 'install')
       }
+      if (tree.revision !== request.review.revision || tree.source.canonical !== request.review.source.canonical || tree.skillPath !== request.review.skillPath) {
+        throw createLifecycleError('source-unavailable', 'install')
+      }
+      if (tree.files.some((file) => !file.path || file.path.startsWith('/') || file.path.split('/').some((part) => part === '.' || part === '..') || typeof file.content !== 'string')) {
+        throw createLifecycleError('unsafe-source', 'install')
+      }
 
       let stagingPath: string | undefined
       try {
