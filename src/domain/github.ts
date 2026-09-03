@@ -1,3 +1,5 @@
+import type { SourceTree } from './lifecycle.ts'
+
 /** GitHub 仓库的稳定定位信息。ref 用于固定用户明确提供的 branch/tag/commit。 */
 export type RepositoryLocator = { owner: string; repo: string; canonical: string; ref?: string }
 
@@ -97,6 +99,7 @@ function defaultFetch(): FetchLike {
 /** 公开 GitHub source 的只读适配器，只读取 API 返回的 blob，绝不写入或执行文件。 */
 export class PublicGitHubSourceAdapter {
   private readonly fetchImpl: FetchLike
+  private readonly reviewedTrees = new WeakMap<object, SourceTree>()
 
   constructor(fetchImpl: FetchLike = defaultFetch()) {
     this.fetchImpl = fetchImpl
@@ -144,7 +147,7 @@ export class PublicGitHubSourceAdapter {
       const declarationPath = root ? skillPath.slice(root.length + 1) : skillPath
       const declarationContent = contents.get(declarationPath)
       if (declarationContent === undefined) throw new PublicGitHubSourceError('skill-not-found')
-      return {
+      const result: SkillReview = {
         source: locator,
         revision,
         skillPath: declarationPath,
@@ -153,10 +156,23 @@ export class PublicGitHubSourceAdapter {
         skillContent: declarationContent,
         riskFlags: [...riskFlags],
       }
+      this.reviewedTrees.set(result, {
+        source: locator,
+        revision,
+        skillPath: declarationPath,
+        files: files.map((file) => ({ ...file, content: contents.get(file.path) ?? '' })),
+      })
+      return result
     } catch (cause) {
       if (cause instanceof PublicGitHubSourceError) throw cause
       throw new PublicGitHubSourceError('source-unavailable', cause)
     }
+  }
+
+  async readTree(review: SkillReview): Promise<SourceTree> {
+    const tree = this.reviewedTrees.get(review)
+    if (!tree) throw new PublicGitHubSourceError('source-unavailable')
+    return tree
   }
 
   private selectSkillPath(paths: string[], requested?: string): string {
