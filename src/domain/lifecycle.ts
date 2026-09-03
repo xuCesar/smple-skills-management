@@ -112,7 +112,8 @@ export type LifecyclePorts = {
 
 export type ReviewRequest = { locator: string | RepositoryLocator; skillPath?: string }
 export type InstallRequest = { review: SkillReview; target: InstallationTarget; confirmed: boolean }
-export type UpdateRequest = InstallRequest & { skillId: string }
+export type UpdateChoice = 'cancel' | 'overwrite-backup' | 'install-new-copy'
+export type UpdateRequest = InstallRequest & { skillId: string; choice?: UpdateChoice }
 export type UninstallRequest = { skillId: string; target: InstallationTarget; confirmed: boolean }
 
 export type LifecycleResult = {
@@ -246,12 +247,44 @@ export function createSkillLifecycleService(ports: LifecyclePorts, handlers: Lif
       return { operation: 'install', skillId, target: request.target }
     },
     async update(request) {
-      if (!handlers.update) throw createLifecycleError('unsupported', 'update')
-      return handlers.update(request)
+      if (handlers.update) return handlers.update(request)
+      if (!request.confirmed) throw createLifecycleError('confirmation-required', 'update')
+      const current = await ports.config.load()
+      const managed = current.installations.find((installation) => installation.skillId === request.skillId && installation.path.endsWith(`/${request.target.skillDirectoryName}`))
+      if (!managed) throw createLifecycleError('not-managed', 'update')
+      const tree = await ports.source.readTree(request.review)
+      const expected = Object.fromEntries(tree.files.map((file) => [file.path, file.content]))
+      let inspection: InstallationInspection
+      try { inspection = await ports.fileSystem.inspect(request.target, expected) } catch (cause) { throw createLifecycleError('filesystem', 'update', cause) }
+      if (inspection.hasLocalChanges && !request.choice) throw createLifecycleError('local-changes', 'update')
+      if (request.choice === 'cancel') throw createLifecycleError('local-changes', 'update')
+      const target = request.choice === 'install-new-copy' ? { ...request.target, skillDirectoryName: `${request.target.skillDirectoryName}-${request.review.revision.slice(0, 7)}` } : request.target
+      let stagingPath: string | undefined
+      try {
+        stagingPath = await ports.fileSystem.createStagingDirectory(target)
+        await ports.fileSystem.writeTree(stagingPath, tree)
+        await ports.fileSystem.atomicReplace(stagingPath, target)
+      } catch (cause) {
+        if (stagingPath) { try { await ports.fileSystem.remove(stagingPath) } catch { /* 保留原始错误 */ } }
+        throw createLifecycleError('filesystem', 'update', cause)
+      }
+      const skillId = request.skillId
+      const targetPath = installationPath(target)
+      const nextInstallations = current.installations.filter((installation) => installation.path !== managed.path && (request.choice !== 'install-new-copy' || installation.path !== targetPath))
+      nextInstallations.push({ skillId, path: targetPath, repository: request.review.source.canonical, revision: request.review.revision })
+      await ports.config.save({ ...current, installations: nextInstallations, updatedAt: new Date().toISOString() })
+      return { operation: 'update', skillId, target }
     },
     async uninstall(request) {
-      if (!handlers.uninstall) throw createLifecycleError('unsupported', 'uninstall')
-      return handlers.uninstall(request)
+      if (handlers.uninstall) return handlers.uninstall(request)
+      if (!request.confirmed) throw createLifecycleError('confirmation-required', 'uninstall')
+      const current = await ports.config.load()
+      const targetPath = installationPath(request.target)
+      const managed = current.installations.find((installation) => installation.skillId === request.skillId && installation.path === targetPath)
+      if (!managed) throw createLifecycleError('not-managed', 'uninstall')
+      try { await ports.trash.moveToTrash(request.target) } catch (cause) { throw createLifecycleError('filesystem', 'uninstall', cause) }
+      await ports.config.save({ ...current, installations: current.installations.filter((installation) => installation.path !== targetPath), updatedAt: new Date().toISOString() })
+      return { operation: 'uninstall', skillId: request.skillId, target: request.target }
     },
   }
 }
