@@ -25,12 +25,14 @@ test('fixture service maps malformed sources to a stable lifecycle error', async
   )
 })
 
-test('fixture service exposes a stable unsupported error until an operation is implemented', async () => {
+test('fixture service installs a reviewed Skill through staging and records managed metadata', async () => {
   const fixture = createLifecycleFixture()
   const target = { directory: '/fixture/skills', skillDirectoryName: 'example' }
 
-  await assert.rejects(
-    fixture.service.install({ review: await fixture.service.review({ locator: 'fixture/skill' }), target, confirmed: true }),
-    (error: unknown) => error instanceof SkillLifecycleError && error.code === 'unsupported' && error.operation === 'install',
-  )
+  const review = await fixture.service.review({ locator: 'fixture/skill' })
+  const result = await fixture.service.install({ review, target, confirmed: true })
+  assert.equal(result.operation, 'install')
+  assert.equal(result.skillId, 'example')
+  assert.deepEqual(fixture.fileSystem.replaced, [{ stagingPath: '/fixture/staging/1', target }])
+  assert.deepEqual(fixture.config.value.installations, [{ skillId: 'example', path: '/fixture/skills/example', repository: 'https://github.com/fixture/skill', revision: 'main@fixture' }])
 })

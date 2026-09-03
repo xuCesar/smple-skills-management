@@ -1,5 +1,6 @@
 import { parsePublicRepository, type RepositoryLocator, type SkillReview } from './github.ts'
 import type { ConfigStore, ManagedConfig } from './config.ts'
+import { isIdentityConflict } from './identity.ts'
 
 /** 生命周期操作的稳定标识，供 UI 和日志分类使用。 */
 export type LifecycleOperation = 'review' | 'install' | 'update' | 'uninstall'
@@ -120,6 +121,30 @@ export type LifecycleResult = {
   target: InstallationTarget
 }
 
+function installationPath(target: InstallationTarget): string {
+  const directory = target.directory.replace(/[\\/]$/, '')
+  return `${directory}/${target.skillDirectoryName}`
+}
+
+function skillIdFromReview(review: SkillReview, target: InstallationTarget): string {
+  const match = review.skillContent.match(/^(?:---[\s\S]*?\n)?name:\s*["']?([^\n"']+)["']?\s*$/m)
+  const declared = match?.[1]?.trim()
+  return declared || target.skillDirectoryName
+}
+
+function validateInstallRequest(request: InstallRequest): void {
+  if (!request.confirmed) throw createLifecycleError('confirmation-required', 'install')
+  if (!request.review || typeof request.review.revision !== 'string' || !request.review.source?.canonical) {
+    throw createLifecycleError('review-required', 'install')
+  }
+  const { directory, skillDirectoryName } = request.target
+  if (!directory.trim() || !skillDirectoryName.trim() || !/^[A-Za-z0-9._-]+$/.test(skillDirectoryName)) {
+    throw createLifecycleError('target-invalid', 'install')
+  }
+  const declared = request.review.skillContent.match(/^name:\s*["']?([^\n"']+)["']?\s*$/m)?.[1]?.trim()
+  if (declared && isIdentityConflict(skillDirectoryName, declared)) throw createLifecycleError('target-invalid', 'install')
+}
+
 /**
  * 生命周期唯一的业务 seam。后续实现只需替换 ports，不让 React 或 Tauri command 直接编排文件操作。
  */
@@ -163,8 +188,56 @@ export function createSkillLifecycleService(ports: LifecyclePorts, handlers: Lif
       }
     },
     async install(request) {
-      if (!handlers.install) throw createLifecycleError('unsupported', 'install')
-      return handlers.install(request)
+      if (handlers.install) return handlers.install(request)
+      validateInstallRequest(request)
+      const targetPath = installationPath(request.target)
+      let inspection: InstallationInspection
+      try {
+        inspection = await ports.fileSystem.inspect(request.target)
+      } catch (cause) {
+        throw createLifecycleError('filesystem', 'install', cause)
+      }
+      if (inspection.exists) throw createLifecycleError('target-conflict', 'install')
+
+      let tree: SourceTree
+      try {
+        tree = await ports.source.readTree(request.review)
+      } catch (cause) {
+        if (cause instanceof SkillLifecycleError) throw cause
+        throw createLifecycleError('source-unavailable', 'install', cause)
+      }
+      if (!tree.files.length || !tree.files.some((file) => file.path === tree.skillPath)) {
+        throw createLifecycleError('skill-not-found', 'install')
+      }
+
+      let stagingPath: string | undefined
+      try {
+        stagingPath = await ports.fileSystem.createStagingDirectory(request.target)
+        await ports.fileSystem.writeTree(stagingPath, tree)
+        await ports.fileSystem.atomicReplace(stagingPath, request.target)
+      } catch (cause) {
+        if (stagingPath) {
+          try { await ports.fileSystem.remove(stagingPath) } catch { /* 清理失败不覆盖原始错误 */ }
+        }
+        throw createLifecycleError('filesystem', 'install', cause)
+      }
+
+      const skillId = skillIdFromReview(request.review, request.target)
+      try {
+        const current = await ports.config.load()
+        const next: ManagedConfig = {
+          ...current,
+          installations: [
+            ...current.installations.filter((installation) => installation.path !== targetPath),
+            { skillId, path: targetPath, repository: request.review.source.canonical, revision: request.review.revision },
+          ],
+          updatedAt: new Date().toISOString(),
+        }
+        await ports.config.save(next)
+      } catch (cause) {
+        throw createLifecycleError('filesystem', 'install', cause)
+      }
+      return { operation: 'install', skillId, target: request.target }
     },
     async update(request) {
       if (!handlers.update) throw createLifecycleError('unsupported', 'update')
