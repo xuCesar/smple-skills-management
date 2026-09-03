@@ -8,6 +8,9 @@ export type LifecycleOperation = 'review' | 'install' | 'update' | 'uninstall'
 export type LifecycleErrorCode =
   | 'invalid-source'
   | 'source-unavailable'
+  | 'skill-not-found'
+  | 'multiple-skills'
+  | 'unsafe-source'
   | 'review-required'
   | 'target-invalid'
   | 'target-conflict'
@@ -21,6 +24,9 @@ export type LifecycleErrorCode =
 const lifecycleMessages: Record<LifecycleErrorCode, string> = {
   'invalid-source': 'GitHub 来源格式不正确',
   'source-unavailable': '无法读取 GitHub 来源，请检查网络连接',
+  'skill-not-found': '仓库中未找到有效的 SKILL.md',
+  'multiple-skills': '仓库包含多个 Skill，请选择具体的 SKILL.md',
+  'unsafe-source': '来源包含不安全或不支持的文件路径',
   'review-required': '安装前必须先完成 Skill review',
   'target-invalid': '安装目标不可用，请检查 Skill directory',
   'target-conflict': '安装目标已存在同名 Skill',
@@ -68,7 +74,7 @@ export type SourceTree = {
 
 /** GitHub 适配器只负责读取内容，不负责写入本地目录或执行文件。 */
 export interface SkillSourceAdapter {
-  review(locator: RepositoryLocator): Promise<SkillReview>
+  review(locator: RepositoryLocator, skillPath?: string): Promise<SkillReview>
   readTree(review: SkillReview): Promise<SourceTree>
 }
 
@@ -103,7 +109,7 @@ export type LifecyclePorts = {
   trash: TrashAdapter
 }
 
-export type ReviewRequest = { locator: string | RepositoryLocator }
+export type ReviewRequest = { locator: string | RepositoryLocator; skillPath?: string }
 export type InstallRequest = { review: SkillReview; target: InstallationTarget; confirmed: boolean }
 export type UpdateRequest = InstallRequest & { skillId: string }
 export type UninstallRequest = { skillId: string; target: InstallationTarget; confirmed: boolean }
@@ -144,9 +150,15 @@ export function createSkillLifecycleService(ports: LifecyclePorts, handlers: Lif
         throw createLifecycleError('invalid-source', 'review', cause)
       }
       try {
-        return await ports.source.review(locator)
+        return await ports.source.review(locator, request.skillPath)
       } catch (cause) {
         if (cause instanceof SkillLifecycleError) throw cause
+        if (cause && typeof cause === 'object' && 'code' in cause) {
+          const code = (cause as { code?: unknown }).code
+          if (code === 'skill-not-found' || code === 'multiple-skills' || code === 'unsafe-source') {
+            throw createLifecycleError(code, 'review', cause)
+          }
+        }
         throw createLifecycleError('source-unavailable', 'review', cause)
       }
     },
