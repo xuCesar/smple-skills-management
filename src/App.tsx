@@ -16,6 +16,8 @@ type Skill = {
   tags: string[]
 }
 
+const emptySkill: Skill = { id: '', name: '暂无选中 Skill', description: '扫描目录后将在这里显示 Skill 详情。', category: '—', version: '—', updated: '—', uses: '—', color: '#94a3b8', icon: '⌁', tags: [] }
+
 const initialSkills: Skill[] = [
   { id: 'ui-ux-pro-max', name: 'ui-ux-pro-max', description: 'UI/UX 设计智能，包含 50+ 风格、161 套配色与响应式布局建议。', category: '设计', version: '1.8.2', updated: '今天 09:42', uses: '12.4k', color: '#f29d74', icon: '✦', tags: ['设计', '前端', '推荐'] },
   { id: 'frontend-app-builder', name: 'frontend-app-builder', description: '从零构建高质量前端应用，关注视觉系统、交互状态与浏览器验证。', category: '开发', version: '0.1.2', updated: '昨天 18:30', uses: '8.7k', color: '#7aa2f7', icon: '⌘', tags: ['React', 'Vite', '工作流'] },
@@ -63,7 +65,7 @@ export function App() {
     } catch { setToast('扫描失败，请检查目录权限') } finally { setScanning(false); window.setTimeout(() => setToast(''), 2200) }
   }
 
-  const selected = skills.find((skill) => skill.id === selectedId) ?? skills[0]
+  const selected = skills.find((skill) => skill.id === selectedId) ?? skills[0] ?? emptySkill
   const filteredSkills = useMemo(() => skills.filter((skill) => {
     const matchesQuery = `${skill.name} ${skill.description} ${skill.tags.join(' ')}`.toLowerCase().includes(query.toLowerCase())
     const matchesFilter = filter === '全部' || skill.category === filter
@@ -106,7 +108,7 @@ export function App() {
             <p className="detail-description">{selected.description}</p>
             <div className="detail-actions"><button className="primary-button" onClick={() => setToast('正在检查更新…')}><Icon size={14}>↻</Icon> 检查更新</button><button className="secondary-button" onClick={() => setToast('已打开技能文档')}><Icon size={14}>↗</Icon> 查看文档</button></div>
             <div className="detail-divider" />
-            <div className="detail-section"><div className="section-title">技能信息</div><div className="meta-list"><div><span>来源</span><strong>OpenAI Skills</strong></div><div><span>最后更新</span><strong>{selected.updated}</strong></div><div><span>累计使用</span><strong>{selected.uses} 次</strong></div><div><span>兼容环境</span><strong>桌面端 · CLI</strong></div></div></div>
+            <div className="detail-section"><div className="section-title">技能信息</div><div className="meta-list"><div><span>来源</span><strong>{selected.tags.includes('默认目录') ? '默认 Skill directory' : '本地 Skill directory'}</strong></div><div><span>最后更新</span><strong>{selected.updated}</strong></div><div><span>累计使用</span><strong>{selected.uses} 次</strong></div><div><span>兼容环境</span><strong>桌面端 · CLI</strong></div></div></div>
             <div className="detail-section"><div className="section-title">标签</div><div className="tag-list">{selected.tags.map((tag) => <span className="tag" key={tag}>{tag}</span>)}</div></div>
             <div className="detail-note"><Icon size={15}>✧</Icon><div><strong>管理提示</strong><p>Skill library 只记录发现与来源，不会改变外部代理的读取行为。</p></div></div>
           </aside>
