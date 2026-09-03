@@ -1,7 +1,8 @@
 export const CONFIG_VERSION = 1 as const
 
 export type SkillDirectory = { path: string; source: 'default' | 'user' }
-export type ManagedInstallation = { skillId: string; path: string; repository?: string; revision?: string }
+export type InstallationManifestEntry = { path: string; size: number; sha256?: string }
+export type ManagedInstallation = { skillId: string; path: string; repository?: string; revision?: string; skillPath?: string; manifest?: InstallationManifestEntry[] }
 export type ManagedConfig = { version: typeof CONFIG_VERSION; directories: SkillDirectory[]; hiddenSkillIds: string[]; installations: ManagedInstallation[]; updatedAt: string }
 
 const defaultDirectories: SkillDirectory[] = [
