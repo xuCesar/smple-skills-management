@@ -44,7 +44,7 @@ export class PublicGitHubSourceError extends Error {
  */
 export function parsePublicRepository(input: string): RepositoryLocator {
   const value = input.trim().replace(/\.git$/, '')
-  const match = value.match(/^(?:https?:\/\/github\.com\/)?([^/\s]+)\/([^/\s]+)$/i)
+  const match = value.match(/^(?:https:\/\/github\.com\/)?([^/\s]+)\/([^/\s]+)$/i)
   if (!match) throw new Error('请输入 GitHub HTTPS 地址或 owner/repo')
   const [, owner, repoWithRef] = match
   if (owner.toLowerCase() === 'gist') throw new Error('不支持 Gist')
@@ -84,7 +84,7 @@ function decodeBlob(blob: GithubBlob): string {
   try {
     const binary = atob(normalized)
     const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0))
-    return new TextDecoder().decode(bytes)
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes)
   } catch (cause) {
     throw new PublicGitHubSourceError('source-unavailable', cause)
   }
@@ -118,7 +118,7 @@ export class PublicGitHubSourceAdapter {
       const root = skillPath.includes('/') ? skillPath.slice(0, skillPath.lastIndexOf('/')) : ''
       const scoped = entries.filter((entry) => {
         if (typeof entry.path !== 'string') return false
-        if (!root) return !entry.path.includes('/')
+        if (!root) return true
         return entry.path.startsWith(`${root}/`)
       })
       const files: ReviewFile[] = []
@@ -199,7 +199,7 @@ export class PublicGitHubSourceAdapter {
   private async readTreeEntries(locator: RepositoryLocator, revision: string): Promise<GithubTreeEntry[]> {
     const response = await this.request(`https://api.github.com/repos/${encodeURIComponent(locator.owner)}/${encodeURIComponent(locator.repo)}/git/trees/${encodeURIComponent(revision)}?recursive=1`)
     const payload = await response.json()
-    if (!response.ok || !payload || typeof payload !== 'object' || !Array.isArray((payload as { tree?: unknown }).tree)) throw new PublicGitHubSourceError('source-unavailable')
+    if (!response.ok || !payload || typeof payload !== 'object' || (payload as { truncated?: unknown }).truncated === true || !Array.isArray((payload as { tree?: unknown }).tree)) throw new PublicGitHubSourceError('source-unavailable')
     return (payload as { tree: unknown[] }).tree.filter((entry): entry is GithubTreeEntry => !!entry && typeof entry === 'object')
   }
 

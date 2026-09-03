@@ -25,6 +25,25 @@ test('parses public GitHub locator and optional ref without network access', () 
     canonical: 'https://github.com/acme/demo',
   })
   assert.throws(() => parsePublicRepository('https://github.com/acme/demo/tree/main/skill'), /GitHub HTTPS/)
+  assert.throws(() => parsePublicRepository('http://github.com/acme/demo'), /GitHub HTTPS/)
+})
+
+test('reviews nested resources for a repository-root Skill', async () => {
+  const entries = [
+    { path: 'SKILL.md', type: 'blob', mode: '100644', url: 'blob:skill', content: '# Root skill' },
+    { path: 'references/guide.md', type: 'blob', mode: '100644', url: 'blob:guide', content: 'guide' },
+  ]
+  const review = await createPublicGitHubSourceAdapter(createFetch(entries)).review(parsePublicRepository('acme/demo'))
+  assert.deepEqual(review.files.map((file) => file.path), ['SKILL.md', 'references/guide.md'])
+})
+
+test('rejects a truncated GitHub tree because the review would be incomplete', async () => {
+  const fetchImpl: FetchLike = async (url) => {
+    if (url.includes('/commits/')) return response({ sha: 'abc123' })
+    return response({ tree: [], truncated: true })
+  }
+  const adapter = createPublicGitHubSourceAdapter(fetchImpl)
+  await assert.rejects(adapter.review(parsePublicRepository('acme/demo')), (error: unknown) => error instanceof PublicGitHubSourceError && error.code === 'source-unavailable')
 })
 
 test('reviews complete selected Skill subtree and records revision and risks', async () => {
